@@ -13,6 +13,7 @@ import (
 	mockdb "github.com/fatkharrofiqi/simplebank/db/mock"
 	db "github.com/fatkharrofiqi/simplebank/db/sqlc"
 	"github.com/fatkharrofiqi/simplebank/utils"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -178,6 +179,24 @@ func TestCreateAccountAPI(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, recorder.Code)
 			},
 		},
+		{
+			name: "DuplicateAccount",
+			body: db.CreateAccountParams{
+				Owner:    account.Owner,
+				Currency: account.Currency,
+				Balance:  0,
+			},
+			buildStubs: func(store *mockdb.MockStore) {
+				store.
+					EXPECT().
+					CreateAccount(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(db.Account{}, &pq.Error{Code: "23505"})
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusForbidden, recorder.Code)
+			},
+		},
 	}
 
 	for i := range testCases {
@@ -236,6 +255,59 @@ func TestListAccountAPI(t *testing.T) {
 			},
 			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusOK, recorder.Code)
+			},
+		},
+		{
+			name:     "NotFound",
+			pageID:   1,
+			pageSize: 5,
+			buildStubs: func(store *mockdb.MockStore) {
+				store.
+					EXPECT().
+					ListAccounts(gomock.Any(), gomock.Eq(db.ListAccountsParams{
+						Limit:  5,
+						Offset: 0,
+					})).
+					Times(1).
+					Return([]db.Account{}, sql.ErrNoRows)
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusNotFound, recorder.Code)
+			},
+		},
+		{
+			name:     "InvalidPageID",
+			pageID:   0,
+			pageSize: 5,
+			buildStubs: func(store *mockdb.MockStore) {
+				store.
+					EXPECT().
+					ListAccounts(gomock.Any(), gomock.Eq(db.ListAccountsParams{
+						Limit:  5,
+						Offset: 0,
+					})).
+					Times(0)
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name:     "InternalServerError",
+			pageID:   1,
+			pageSize: 5,
+			buildStubs: func(store *mockdb.MockStore) {
+				store.
+					EXPECT().
+					ListAccounts(gomock.Any(), gomock.Eq(db.ListAccountsParams{
+						Limit:  5,
+						Offset: 0,
+					})).
+					Times(1).
+					Return([]db.Account{}, sql.ErrConnDone)
+			},
+			checkResponse: func(t *testing.T, recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
 			},
 		},
 	}
